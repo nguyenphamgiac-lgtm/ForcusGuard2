@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FocusGuard — Dashboard</title>
+
+<link rel="stylesheet" href="css/style.css">
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="brand">FocusGuard AI</div>
+    <div class="user-chip">
+        <span id="userName">—</span>
+        <button class="secondary" onclick="location.href='parent.html'">Chế độ phụ huynh</button>
+    </div>
+</div>
+
+<div class="app">
+
+    <!-- 📌 GUIDE POPUP -->
+    <div id="guidePopup" class="popup-overlay">
+        <div class="popup-box">
+            <div class="popup-header">
+                <h2>CÁCH SỬ DỤNG FOCUSGUARD</h2>
+                <span class="close-btn" onclick="closeGuide()">✖</span>
+            </div>
+            <div class="popup-body">
+                <p>▶ START AI MONITORING: bật camera + AI</p>
+                <p>▶ START: bắt đầu Pomodoro 25 phút</p>
+                <p>▶ RESET: dừng và đặt lại thời gian</p>
+                <p>▶ AI SCORE: theo dõi tập trung</p>
+                <p>▶ STREAK: chuỗi phiên học hoàn thành</p>
+            </div>
+            <button class="ok-btn" onclick="closeGuide()">OK</button>
+        </div>
+    </div>
+
+    <!-- 🎥 VIDEO -->
+    <div class="video-section">
+        <video id="webcam" autoplay muted playsinline></video>
+        <div id="camOffMsg" class="cam-off-msg">Camera chưa bật. Nhấn "Start AI Monitoring" bên dưới.</div>
+
+        <div id="countdown" class="countdown hidden"></div>
+        <div id="alertBox" class="alert-box hidden">⚠ Vui lòng trở lại bàn học</div>
+
+        <div class="monitor-badge">
+            <span id="monitorDot" class="dot off"></span>
+            <span id="monitorLabel">AI Monitoring Off</span>
+        </div>
+
+        <div id="statusBadge" class="status-badge hidden"></div>
+
+        <div class="overlay">
+            <div class="title">FocusGuard AI</div>
+            <div class="score" id="score">100%</div>
+        </div>
+
+        <div class="cam-controls">
+            <button id="camStartBtn" onclick="startMonitoring()">Start AI Monitoring</button>
+            <button id="camStopBtn" class="danger hidden" onclick="stopMonitoring()">Stop</button>
+        </div>
+    </div>
+
+    <!-- 📊 PANEL -->
+    <div class="panel">
+
+        <div class="card big">
+            <h2>Pomodoro <span id="modeLabel" class="mode-pill">Học</span></h2>
+            <div id="timer">25:00</div>
+            <div class="row">
+                <button onclick="FGPomodoro.start()">Start</button>
+                <button class="secondary" onclick="FGPomodoro.reset()">Reset</button>
+            </div>
+        </div>
+
+        <div class="card glass">
+            <h3>Focus Chart</h3>
+            <canvas id="scoreChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h3>Focus Stats</h3>
+            <div class="stat-row"><span id="studyTime">Study: 0m</span></div>
+            <div class="stat-row"><span id="distractedTime">Distracted: 0 times</span></div>
+            <div class="stat-row"><span id="streak">Streak: 0</span></div>
+            <div class="stat-row"><span id="xp">XP: 0</span></div>
+        </div>
+
+        <div class="card warn">
+            <h3>Warning Log</h3>
+            <div id="warningLog" class="log-list"></div>
+        </div>
+
+    </div>
+
+</div>
+
+<audio id="doneSound"><source src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg"></audio>
+<audio id="warningSound"><source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
+<script src="js/firebase.js"></script>
+<script src="js/notification.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/pomodoro.js"></script>
+<script>
+let currentUser = null;
+
+function closeGuide() {
+    document.getElementById("guidePopup").classList.add("hidden");
+}
+
+function showWarningBox() {
+    const box = document.getElementById("alertBox");
+    box.classList.remove("hidden");
+    const s = document.getElementById("warningSound");
+    if (s) { s.currentTime = 0; s.play().catch(() => {}); }
+    setTimeout(() => box.classList.add("hidden"), 1500);
+}
+
+function setStatusBadge(status) {
+    const badge = document.getElementById("statusBadge");
+    badge.classList.remove("hidden", "focused", "distracted", "away");
+    const map = {
+        focused: ["🙂 Focused", "focused"],
+        distracted: ["⚠️ Distracted", "distracted"],
+        away: ["❌ Away from desk", "away"]
+    };
+    const [label, cls] = map[status] || map.focused;
+    badge.innerText = label;
+    badge.classList.add(cls);
+}
+
+async function startMonitoring() {
+    document.getElementById("camStartBtn").disabled = true;
+    document.getElementById("camStartBtn").innerText = "Loading AI...";
+
+    try {
+        await FGCamera.start("webcam");
+        document.getElementById("camOffMsg").classList.add("hidden");
+
+        await FGAI.load();
+        FGAI.start(document.getElementById("webcam"));
+
+        FGAI.onStatusChange = (status) => setStatusBadge(status);
+        FGAI.onWarning = (warning) => {
+            showWarningBox();
+            const messages = {
+                distracted: "Bạn đang mất tập trung, hãy quay lại bàn học",
+                phone: "Phát hiện điện thoại, hãy tập trung học",
+                away: "Bạn đã rời khỏi bàn học"
+            };
+            speakVN(messages[warning.type] || messages.distracted);
+            FGPomodoro.logWarning(warning);
+        };
+
+        document.getElementById("monitorDot").classList.remove("off");
+        document.getElementById("monitorLabel").innerText = "AI Monitoring Active";
+        setStatusBadge("focused");
+
+        document.getElementById("camStartBtn").classList.add("hidden");
+        document.getElementById("camStopBtn").classList.remove("hidden");
+    } catch (e) {
+        console.error(e);
+        alert("Không thể bật camera hoặc tải AI model. Kiểm tra quyền camera và kết nối mạng.");
+        document.getElementById("camStartBtn").disabled = false;
+        document.getElementById("camStartBtn").innerText = "Start AI Monitoring";
+    }
+}
+
+function stopMonitoring() {
+    FGAI.stop();
+    FGCamera.stop();
+    document.getElementById("camOffMsg").classList.remove("hidden");
+    document.getElementById("monitorDot").classList.add("off");
+    document.getElementById("monitorLabel").innerText = "AI Monitoring Off";
+    document.getElementById("statusBadge").classList.add("hidden");
+    document.getElementById("camStartBtn").classList.remove("hidden");
+    document.getElementById("camStartBtn").disabled = false;
+    document.getElementById("camStartBtn").innerText = "Start AI Monitoring";
+    document.getElementById("camStopBtn").classList.add("hidden");
+}
+
+function speakVN(text) {
+    if (!("speechSynthesis" in window)) return;
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.lang = "vi-VN";
+    speechSynthesis.speak(msg);
+}
+
+window.onload = async () => {
+    currentUser = JSON.parse(localStorage.getItem("fg_current_user") || "null");
+    if (!currentUser) { window.location.href = "index.html"; return; }
+
+    document.getElementById("userName").innerText = currentUser.name;
+
+    await FGData.init();
+    FGPomodoro.init(currentUser.id);
+    FGPomodoro.bindUI({
+        timer: "timer", mode: "modeLabel", studyTime: "studyTime",
+        distractedTime: "distractedTime", streak: "streak", xp: "xp",
+        log: "warningLog", chartCanvas: "scoreChart"
+    });
+
+    await FGNotify.requestPermission();
+};
+</script>
+</body>
+</html>

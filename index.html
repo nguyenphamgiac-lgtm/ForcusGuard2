@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FocusGuard AI</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="auth-screen">
+    <div class="auth-card">
+        <h1>FocusGuard AI</h1>
+        <p class="sub">Học tập tập trung hơn với AI Camera Monitoring</p>
+
+        <div class="role-tabs">
+            <button id="tabStudent" class="active" onclick="selectRole('student')">Học sinh</button>
+            <button id="tabParent" onclick="selectRole('parent')">Phụ huynh</button>
+        </div>
+
+        <input id="nameInput" type="text" placeholder="Tên của bạn">
+        <input id="idInput" type="text" placeholder="Mã học sinh (dùng để liên kết phụ huynh)">
+
+        <button class="submit-btn" onclick="enter()">Tiếp tục</button>
+
+        <div class="privacy-note">
+            🔒 FocusGuard không lưu video của bạn. Chỉ điểm tập trung, thời lượng
+            và cảnh báo được lưu lại để hiển thị cho bạn (và phụ huynh, nếu bạn
+            liên kết tài khoản).
+        </div>
+    </div>
+</div>
+
+
+<!-- Firebase SDK thêm vào, không sửa code cũ -->
+<script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
+
+<!-- Firebase của FocusGuard -->
+<script src="js/firebase.js"></script>
+
+
+<script>
+let role = "student";
+
+function selectRole(r) {
+    role = r;
+    document.getElementById("tabStudent").classList.toggle("active", r === "student");
+    document.getElementById("tabParent").classList.toggle("active", r === "parent");
+    document.getElementById("idInput").placeholder =
+        r === "student" ? "Mã học sinh (dùng để liên kết phụ huynh)" : "Mã học sinh muốn theo dõi";
+}
+
+async function enter() {
+    const name = document.getElementById("nameInput").value.trim();
+    const id = document.getElementById("idInput").value.trim();
+
+    if (!name || !id) {
+        alert("Vui lòng nhập đầy đủ tên và mã.");
+        return;
+    }
+
+    await FGData.init();
+
+    if (role === "student") {
+        await FGData.saveUser({ id, name, role: "student" });
+        localStorage.setItem("fg_current_user", JSON.stringify({ id, name, role: "student" }));
+        window.location.href = "dashboard.html";
+    } else {
+        await FGData.saveUser({ id: "parent_" + name, name, role: "parent", watching: [id] });
+        localStorage.setItem("fg_current_user", JSON.stringify({ id: "parent_" + name, name, role: "parent", watching: [id] }));
+        window.location.href = "parent.html";
+    }
+}
+</script>
+
+</body>
+</html>

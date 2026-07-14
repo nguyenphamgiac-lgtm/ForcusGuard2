@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FocusGuard — Phụ huynh</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+    <div class="brand">FocusGuard AI · Phụ huynh</div>
+    <div class="user-chip">
+        <span id="userName">—</span>
+        <button class="secondary" onclick="location.href='index.html'">Đăng xuất</button>
+    </div>
+</div>
+
+<div id="studentList" class="student-list"></div>
+
+<script src="js/firebase.js"></script>
+<script src="js/notification.js"></script>
+<script>
+function fmtMinutes(totalSeconds) {
+    const m = Math.floor(totalSeconds / 60);
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return h > 0 ? `${h}h${mm}m` : `${mm}m`;
+}
+
+async function render() {
+    const user = JSON.parse(localStorage.getItem("fg_current_user") || "null");
+    if (!user) { window.location.href = "index.html"; return; }
+    document.getElementById("userName").innerText = user.name;
+
+    await FGData.init();
+
+    const watching = user.watching || [];
+    const container = document.getElementById("studentList");
+
+    if (watching.length === 0) {
+        container.innerHTML = `<div class="empty-state">Chưa liên kết học sinh nào. Đăng nhập lại và nhập mã học sinh.</div>`;
+        return;
+    }
+
+    container.innerHTML = "";
+
+    for (const studentId of watching) {
+        const student = await FGData.getUser(studentId);
+        const sessions = await FGData.getSessionsForUser(studentId);
+        const warnings = await FGData.getWarningsForUser(studentId);
+
+        const totalStudySeconds = sessions.reduce((sum, s) => sum + (s.studySeconds || 0), 0);
+        const avgFocus = sessions.length
+            ? Math.round(sessions.reduce((sum, s) => sum + (s.focusScore || 0), 0) / sessions.length)
+            : 100;
+
+        const today = new Date().toDateString();
+        const warningsToday = warnings.filter(w => new Date(w.time).toDateString() === today);
+
+        if (warningsToday.length >= 5) {
+            FGNotify.distractionSummary(student ? student.name : studentId, warningsToday.length);
+        }
+
+        const card = document.createElement("div");
+        card.className = "card student-card";
+        card.innerHTML = `
+            <div class="name">${student ? student.name : studentId}</div>
+            <div class="metrics">
+                <div class="metric"><div class="val">${fmtMinutes(totalStudySeconds)}</div><div class="lbl">Study</div></div>
+                <div class="metric"><div class="val">${avgFocus}%</div><div class="lbl">Focus</div></div>
+                <div class="metric warn-count"><div class="val">${warnings.length}</div><div class="lbl">Warnings</div></div>
+            </div>
+        `;
+        container.appendChild(card);
+    }
+}
+
+window.onload = async () => {
+    await FGNotify.requestPermission();
+    render();
+    setInterval(render, 30000); // refresh every 30s
+};
+</script>
+</body>
+</html>
